@@ -1,12 +1,10 @@
 import React, { useEffect, useState } from "react";
-
-import { DataTable } from '@openedx/paragon';
-
-import useGradebookTableData from './hooks';
+import { DataTable } from "@openedx/paragon";
+import useGradebookTableData from "./hooks";
 import { useParams } from "react-router";
 
 /**
- * <GraebookTable />
+ * <GradebookTable />
  * This is the wrapper component for the Grades tab gradebook table, holding
  * a row for each user, with a column for their username, email, and total grade,
  * along with one for each subsection in their grade entry.
@@ -19,7 +17,7 @@ export const GradebookTable = () => {
     nullMethod,
     emptyContent,
   } = useGradebookTableData();
-  
+
   const { courseId } = useParams();
   const [columns, setColumns] = useState(initialColumns);
   const [data, setData] = useState(initialData);
@@ -27,7 +25,9 @@ export const GradebookTable = () => {
   useEffect(() => {
     const fetchAndModifyData = async () => {
       try {
-        const url = `https://wordaddin.educating.ai/api/openedx/get_all_edx_rubrics_scores_for_user?course_id=${encodeURIComponent(courseId)}&user_id=${1}`;
+        const url = `https://wordaddin.educating.ai/api/openedx/get_all_edx_rubrics_scores_for_users?course_id=${encodeURIComponent(
+          courseId
+        )}`;
         const requestBody = { name: "hello" };
   
         const response = await fetch(url, {
@@ -40,52 +40,41 @@ export const GradebookTable = () => {
   
         const result = await response.json();
   
-        if (result && result.rubric_and_scores) {
-          setData((prevData) => {
-            const updatedData = [...prevData];
-  
-            const existingRowIndex = updatedData.findIndex(
-              (row) => row.username === result.user_id
-            );
-  
-            // Updated row from API data
-            const updatedRow = {
-              "Username": result.username || result.user_id, // Use `username` if provided, fallback to `user_id`
-              "Full Name": result.full_name || "Divedeep", // Replace with actual `full_name` from API if available
-              "Email": result.email || "e.divedeepai@gmail.com", // Replace with actual `email` from API if available
-              "Total Grade (%)": result.total_grade || "---", // Replace with calculated or provided grade
-              ...result.rubric_and_scores.reduce((acc, rubric) => {
-                acc[`rubric_${rubric.rubric_id}`] = rubric.score ?? "---"; // Map rubric scores
-                return acc;
-              }, {}),
-            };
-  
-            if (existingRowIndex > -1) {
-              updatedData[existingRowIndex] = {
-                ...updatedData[existingRowIndex],
-                ...updatedRow,
-              };
-            } else {
-              updatedData.push(updatedRow);
+        // Process columns
+        const uniqueRubrics = new Map();
+        result.all_users_scores.forEach((user) => {
+          user.rubric_and_scores.forEach((rubric, index) => {
+            const uniqueKey = `${rubric.rubric_title}_${index}`;
+            if (!uniqueRubrics.has(uniqueKey)) {
+              uniqueRubrics.set(uniqueKey, rubric.rubric_title);
             }
-  
-            return updatedData;
           });
+        });
   
-          const rubricColumns = result.rubric_and_scores.map((rubric, index) => ({
-            Header: `${rubric.rubric_title} ${index + 1}`,
-            accessor: `rubric_${rubric.rubric_id}`,
-          }));
+        const newColumns = [
+          ...initialColumns,
+          ...Array.from(uniqueRubrics.entries()).map(([uniqueKey, rubricTitle]) => ({
+            Header: rubricTitle,
+            accessor: uniqueKey, // Use unique key as accessor
+          })),
+        ];
   
-          setColumns((prevColumns) => {
-            const existingAccessors = new Set(prevColumns.map((col) => col.accessor));
-            const newColumns = rubricColumns.filter(
-              (col) => !existingAccessors.has(col.accessor)
-            );
+        // Process data
+        const newData = result.all_users_scores.map((user) => {
+          const userRow = {
+            Username: user.user_id,
+            Email: user.user_email || "N/A",
+            ...user.rubric_and_scores.reduce((acc, rubric, index) => {
+              const uniqueKey = `${rubric.rubric_title}_${index}`;
+              acc[uniqueKey] = rubric.score ?? "N/A";
+              return acc;
+            }, {}),
+          };
+          return userRow;
+        });
   
-            return [...prevColumns, ...newColumns];
-          });
-        }
+        setColumns(newColumns);
+        setData(newData);
       } catch (error) {
         console.error("Error fetching data:", error);
       }
@@ -93,14 +82,16 @@ export const GradebookTable = () => {
   
     fetchAndModifyData();
   }, [courseId]);
+  
+
   return (
     <div className="gradebook-container">
       <DataTable
         columns={columns}
         data={data}
-        rowHeaderColumnKey="username"
+        rowHeaderColumnKey="Username"
         hasFixedColumnWidths
-        itemCount={grades.length}
+        itemCount={data.length}
         RowStatusComponent={nullMethod}
       >
         <DataTable.TableControlBar />
